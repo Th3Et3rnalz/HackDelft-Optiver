@@ -24,11 +24,10 @@ def listen_to_server(sock, queue):
             entry[k] = v
         entry['TIMESTAMP'] = datetime.datetime.now()
         queue.put(entry)
-        print("The following message was received:", entry)
+        print('[{}] {}'.format(entry['TIMESTAMP'], entry))
 
 def product_monitor():
     plt.show()
-
 
 class OptiverInterface:
     def __init__(self):
@@ -95,7 +94,7 @@ class OptiverInterface:
         timeframe = options.get('timeframe', 60)
         ts,bps,aps = [],[],[]
         for t,bp,ap in zip(timestamps,bid_prices,ask_prices):
-            if 0 <= (now - t).total_seconds() <= timeframe:
+            if 0 <= (now - t).total_seconds() <= timeframe + 5:
                 ts.append(t)
                 bps.append(bp)
                 aps.append(ap)
@@ -110,7 +109,7 @@ class OptiverInterface:
         ask_ts,ask_ps,ask_vs = [],[],[]
         bid_ts,bid_ps,bid_vs = [],[],[]
         for t,s,p,v in zip(timestamps,sides,prices,volumes):
-            if 0 <= (now - t).total_seconds() <= timeframe:
+            if 0 <= (now - t).total_seconds() <= timeframe + 5:
                 if s == 'ASK':
                     ask_ts.append(t)
                     ask_ps.append(p)
@@ -129,14 +128,19 @@ class OptiverInterface:
         ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%Y:%M:%S'))
         ax.tick_params(axis = 'x', labelrotation = 90)
         ax.set_ylabel('Price')
-        ax.figure.canvas.draw()
+        # if ask_prices and bid_prices and prices:
+        #     ax.set_ylim((min(min(bid_prices),min(prices)), max(max(ask_prices),max(prices))))
+        if options.get('draw', True): ax.figure.canvas.draw()
 
-    def setup_plot_monitor(self, product, **kwargs):
-        print("Starting a monitor of the prices of product {}...".format(product))
+    def setup_plot_monitor(self, products, **kwargs):
         fig = plt.figure()
-        ax = fig.gca()
         timer = fig.canvas.new_timer(interval = 500)
-        timer.add_callback(self.plot_product_price, product, ax, kwargs)
+        kwargs['draw'] = False
+        for i,product in enumerate(products):
+            if i == len(products) - 1: kwargs['draw'] = True
+            print("Starting a monitor of the prices of product {}...".format(product))
+            ax = fig.add_subplot(2,1,i+1)
+            timer.add_callback(self.plot_product_price, product, ax, kwargs.copy())
         timer.start()
         self.product_monitor_figures.append(fig)
         return fig
@@ -153,9 +157,6 @@ class OptiverInterface:
         pmp, figs = self.product_monitor_processes[idx]
         pmp.terminate()
         del self.product_monitor_processes[idx]
-
-    def __str__(self):
-        return "\n".join(map(str, (self.prices, self.trades)))
 
     def buy(self, user, feedcode, price, volume):
         text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
@@ -194,11 +195,11 @@ if __name__ == "__main__":
     # Test plotting
     oi = OptiverInterface()
     oi.start_listen()
-    time.sleep(1)
-    oi.setup_plot_monitor('SP-FUTURE')
-    oi.setup_plot_monitor('ESX-FUTURE')
+    oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
+    # oi.setup_plot_monitor()
     idx = oi.show_plot_monitors()
-    time.sleep(180)
+    while True:
+        time.sleep(1)
     oi.close_plot_monitors(idx)
     oi.stop_listen()
 
