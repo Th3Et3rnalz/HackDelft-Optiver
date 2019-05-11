@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import socket
 import multiprocessing
 import time
+import pickle
 
 UDP_IP = "188.166.115.7"
 UDP_BROADCAST_PORT = 7001
@@ -22,14 +23,17 @@ def listen_to_server(sock, queue):
         queue.put(entry)
         # print(entry)
 
+
 class OptiverInterface:
     def __init__(self):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s.bind(("",8000))
+        self.s.bind(("", 8005))
         self.s.sendto(HELLO_MESSAGE, (UDP_IP, UDP_BROADCAST_PORT))
         self.listen_process = None
         self.data_queue = None
         self._products = {}
+        self.s_exchange = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.s_exchange.bind(("", 8002))
 
     def _update_products(self):
         while not self.data_queue.empty():
@@ -52,7 +56,7 @@ class OptiverInterface:
                 side = entry['SIDE']
                 price = entry['PRICE']
                 volume = entry['VOLUME']
-                self._products[product]['TRADES'].append((side,price,volume))
+                self._products[product]['TRADES'].append((side, price, volume))
 
     def get_products(self):
         self._update_products()
@@ -77,9 +81,62 @@ class OptiverInterface:
     def __str__(self):
         return "\n".join(map(str, (self.prices, self.trades)))
 
+    def buy(self, user, feedcode, price, volume):
+        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
+        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+        end = False
+        while not end:
+            data = self.s_exchange.recvfrom(1024)[0]
+            msg = data.decode("ascii")
+            properties = msg.split("|")
+            entry = {}
+            for p in properties:
+                k, v = p.split("=")
+                entry[k] = v
+            if entry[0] == "ORDER_ACK":
+                print(entry)
+                end = True
+
+    def sell(self, user, feedcode, price, volume):
+        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
+        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+        end = False
+        while not end:
+            data = self.s_exchange.recvfrom(1024)[0]
+            msg = data.decode("ascii")
+            properties = msg.split("|")
+            entry = {}
+            for p in properties:
+                k, v = p.split("=")
+                entry[k] = v
+            if entry["TYPE"] == "ORDER_ACK":
+                print(entry)
+                end = True
+
+
 oi = OptiverInterface()
 oi.start_listen()
-time.sleep(5)
+
+start = time.time()
+end = False
+i = 1
+while not end:
+    try:
+        if (time.time() - start) % 600 < 10:
+            pickling_on = open("data{}.pickle".format(i), "wb")
+            pickle.dump(oi._products, pickling_on)
+            pickling_on.close()
+            i += 1
+            time.sleep(20)
+        time.sleep(2)
+    except KeyboardInterrupt:
+        pickling_on = open("data{}.pickle".format(i), "wb")
+        pickle.dump(oi._products, pickling_on)
+        pickling_on.close()
+        time.sleep(20)
+        end = True
+
 oi.stop_listen()
+# oi.sell("GROUP25TESTING", "SP-FUTURE", "2950.0", "50")
 time.sleep(1)
-print(oi.products)
+# print(oi.products)

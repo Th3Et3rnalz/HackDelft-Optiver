@@ -10,4 +10,14 @@ with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
     s.sendto(MESSAGE, (UDP_IP, UDP_PORT))
     while True:
         data, addr = s.recvfrom(1024)
-        print("Received message:", data)
+        msg = data.decode("ascii")
+        properties = msg.split("|")
+        entry = {}
+        for p in properties:
+            k, v = p.split("=")
+            entry[k] = v
+        try:
+            if entry["SIDE"] and entry["FEEDCODE"] == "SP-FUTURE":
+                print(entry)
+        except:
+            pass
