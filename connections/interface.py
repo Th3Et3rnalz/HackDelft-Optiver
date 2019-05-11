@@ -1,3 +1,6 @@
+import numpy as np
+np.set_printoptions(linewidth=200)
+import matplotlib.pyplot as plt
 import socket
 import multiprocessing
 import time
@@ -26,29 +29,36 @@ class OptiverInterface:
         self.s.sendto(HELLO_MESSAGE, (UDP_IP, UDP_BROADCAST_PORT))
         self.listen_process = None
         self.data_queue = None
-        self._prices = []
-        self._trades = []
+        self._products = {}
 
-    def _update_prices_trades(self):
+    def _update_products(self):
         while not self.data_queue.empty():
             entry = self.data_queue.get_nowait()
+            assert set(['TYPE','FEEDCODE']) <= set(entry.keys())
             assert entry['TYPE'] in set(['PRICE','TRADE'])
-            if entry['TYPE'] == 'PRICE':
-                self._prices.append(entry)
+            assert entry['FEEDCODE'] in set(['ESX-FUTURE','SP-FUTURE'])
+            type = entry['TYPE']
+            product = entry['FEEDCODE']
+            if product not in self._products: self._products[product] = {'PRICES' : [], 'TRADES' : []}
+            if type == 'PRICE':
+                assert set(['BID_PRICE','BID_VOLUME','ASK_PRICE','ASK_VOLUME']) <= set(entry.keys())
+                bid_price = float(entry['BID_PRICE'])
+                bid_volume = int(entry['BID_VOLUME'])
+                ask_price = float(entry['ASK_PRICE'])
+                ask_volume = int(entry['ASK_VOLUME'])
+                self._products[product]['PRICES'].append((bid_price, bid_volume, ask_price, ask_volume))
             else:
-                self._trades.append(entry)
+                assert set(['SIDE','PRICE','VOLUME']) <= set(entry.keys())
+                side = entry['SIDE']
+                price = entry['PRICE']
+                volume = entry['VOLUME']
+                self._products[product]['TRADES'].append((side,price,volume))
 
-    def get_prices(self):
-        self._update_prices_trades()
-        return self._prices
+    def get_products(self):
+        self._update_products()
+        return self._products
 
-    prices = property(get_prices, None)
-
-    def get_trades(self):
-        self._update_prices_trades()
-        return self._trades
-
-    trades = property(get_trades, None)
+    products = property(get_products, None)
 
     def start_listen(self):
         print("Listening to the server's data...")
@@ -60,6 +70,10 @@ class OptiverInterface:
         print("Stopping with listening to the server's data...")
         self.listen_process.terminate()
 
+    def plot_product_price(self, product, ax):
+        assert product in self.products
+        ax.clear()
+
     def __str__(self):
         return "\n".join(map(str, (self.prices, self.trades)))
 
@@ -68,5 +82,4 @@ oi.start_listen()
 time.sleep(5)
 oi.stop_listen()
 time.sleep(1)
-print(oi.prices)
-print(oi.trades)
+print(oi.products)
