@@ -13,19 +13,6 @@ UDP_BROADCAST_PORT = 7001
 UDP_EXCHANGE_PORT = 8001
 HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
 
-def listen_to_server(sock, queue):
-    while True:
-        data, addr = sock.recvfrom(1024)
-        msg = data.decode("ascii")
-        properties = msg.split("|")
-        entry = {}
-        for p in properties:
-            k,v = p.split("=")
-            entry[k] = v
-        entry['TIMESTAMP'] = datetime.datetime.now()
-        queue.put(entry)
-        print('[{}] {}'.format(entry['TIMESTAMP'], entry))
-
 def product_monitor():
     plt.show()
 
@@ -34,57 +21,56 @@ class OptiverInterface:
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.s.bind(("", 8005))
         self.s.sendto(HELLO_MESSAGE, (UDP_IP, UDP_BROADCAST_PORT))
-        self.listen_process = None
         self.product_monitor_processes = {}
         self.product_monitor_figures = []
-        self.data_queue = None
-        self._products = {}
+        self.data_queue = multiprocessing.Queue()
+        self.products = {}
         self.s_exchange = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.s_exchange.bind(("", 8002))
 
-    def _update_products(self):
+    def synchronize(self):
         while not self.data_queue.empty():
-            entry = self.data_queue.get_nowait()
-            assert set(['TYPE','FEEDCODE','TIMESTAMP']) <= set(entry.keys())
-            assert entry['TYPE'] in set(['PRICE','TRADE'])
-            assert entry['FEEDCODE'] in set(['ESX-FUTURE','SP-FUTURE'])
-            timestamp = entry['TIMESTAMP']
-            type = entry['TYPE']
-            product = entry['FEEDCODE']
-            if product not in self._products: self._products[product] = {'PRICES' : [], 'TRADES' : []}
-            if type == 'PRICE':
-                assert set(['BID_PRICE','BID_VOLUME','ASK_PRICE','ASK_VOLUME']) <= set(entry.keys())
-                bid_price = float(entry['BID_PRICE'])
-                bid_volume = int(entry['BID_VOLUME'])
-                ask_price = float(entry['ASK_PRICE'])
-                ask_volume = int(entry['ASK_VOLUME'])
-                self._products[product]['PRICES'].append((timestamp, bid_price, bid_volume, ask_price, ask_volume))
-            else:
-                assert set(['SIDE','PRICE','VOLUME']) <= set(entry.keys())
-                side = entry['SIDE']
-                price = float(entry['PRICE'])
-                volume = int(entry['VOLUME'])
-                self._products[product]['TRADES'].append((timestamp,side,price,volume))
+            self._update_products(self.data_queue.get_nowait())
 
-    def get_products(self):
-        self._update_products()
-        return self._products
+    def _update_products(self, entry):
+        assert set(['TYPE','FEEDCODE','TIMESTAMP']) <= set(entry.keys())
+        assert entry['TYPE'] in set(['PRICE','TRADE'])
+        assert entry['FEEDCODE'] in set(['ESX-FUTURE','SP-FUTURE'])
+        timestamp = entry['TIMESTAMP']
+        type = entry['TYPE']
+        product = entry['FEEDCODE']
+        if product not in self.products: self.products[product] = {'PRICES' : [], 'TRADES' : []}
+        if type == 'PRICE':
+            assert set(['BID_PRICE','BID_VOLUME','ASK_PRICE','ASK_VOLUME']) <= set(entry.keys())
+            bid_price = float(entry['BID_PRICE'])
+            bid_volume = int(entry['BID_VOLUME'])
+            ask_price = float(entry['ASK_PRICE'])
+            ask_volume = int(entry['ASK_VOLUME'])
+            self.products[product]['PRICES'].append((timestamp, bid_price, bid_volume, ask_price, ask_volume))
+        else:
+            assert set(['SIDE','PRICE','VOLUME']) <= set(entry.keys())
+            side = entry['SIDE']
+            price = float(entry['PRICE'])
+            volume = int(entry['VOLUME'])
+            self.products[product]['TRADES'].append((timestamp,side,price,volume))
 
-    products = property(get_products, None)
-
-    def start_listen(self):
-        print("Listening to the server's data...")
-        self.data_queue = multiprocessing.Queue()
-        self.listen_process = multiprocessing.Process(target = listen_to_server, args = [self.s, self.data_queue])
-        self.listen_process.start()
-
-    def stop_listen(self):
-        print("Stopping with listening to the server's data...")
-        self.listen_process.terminate()
+    def listen(self):
+        while True:
+            data, addr = self.s.recvfrom(1024)
+            msg = data.decode("ascii")
+            properties = msg.split("|")
+            entry = {}
+            for p in properties:
+                k,v = p.split("=")
+                entry[k] = v
+            entry['TIMESTAMP'] = datetime.datetime.now()
+            self._update_products(entry)
+            self.data_queue.put(entry)
+            print('[{}] {}'.format(entry['TIMESTAMP'], entry))
 
     def get_timeframe(self, product, now = None, timeframe = 60):
         if now is None: now = datetime.datetime.now()
-        data = self._products[product]
+        data = self.products[product]
         new_data = {'PRICES' : [], 'TRADES' : []}
         for t,bp,bv,ap,av in data['PRICES']:
             if 0 <= (now - t).total_seconds() <= timeframe:
@@ -97,16 +83,23 @@ class OptiverInterface:
         return new_data
 
     def get_time_price(self, product, time = None):
-        assert product in self.products
+        # assert product in self.products
+        if product not in self.products:
+            print("WARNING: Product {} not in the products.".format(product))
+            return
         if time is None: time = datetime.datetime.now()
-        if time <= self.products[product]['PRICES'][0][0]:
+        if len(self.products[product]['PRICES']) == 0 or time <= self.products[product]['PRICES'][0][0]:
             return (1e8,1e8,1e8,1e8)
         for t,bp,bv,ap,av in reversed(self.products[product]['PRICES']):
             if t <= time:
                 return (bp,bv,ap,av)
 
     def plot_product_price(self, product, ax, options = {}):
-        assert product in self.products
+        # assert product in self.products
+        self.synchronize()
+        if product not in self.products:
+            print("WARNING: Product {} not in the products.".format(product))
+            return
         if options.get('clear',True): ax.clear()
 
         # Get the data
@@ -152,7 +145,11 @@ class OptiverInterface:
         if options.get('draw', True): ax.figure.canvas.draw()
 
     def plot_product_volume(self, product, ax, options = {}):
-        assert product in self.products
+        # assert product in self.products
+        self.synchronize()
+        if product not in self.products:
+            print("WARNING: Product {} not in the products.".format(product))
+            return
         if options.get('clear',True): ax.clear()
 
         # Get the data
@@ -223,46 +220,41 @@ class OptiverInterface:
         pmp.terminate()
         del self.product_monitor_processes[idx]
 
-    def buy(self, user, feedcode, price, volume):
-        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
-        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry[0] == "ORDER_ACK":
-                print(entry)
-                end = True
-
-    def sell(self, user, feedcode, price, volume):
-        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
-        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry["TYPE"] == "ORDER_ACK":
-                print(entry)
-                end = True
+    # def buy(self, user, feedcode, price, volume):
+    #     text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
+    #     self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+    #     end = False
+    #     while not end:
+    #         data = self.s_exchange.recvfrom(1024)[0]
+    #         msg = data.decode("ascii")
+    #         properties = msg.split("|")
+    #         entry = {}
+    #         for p in properties:
+    #             k, v = p.split("=")
+    #             entry[k] = v
+    #         if entry[0] == "ORDER_ACK":
+    #             print(entry)
+    #             end = True
+    #
+    # def sell(self, user, feedcode, price, volume):
+    #     text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
+    #     self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+    #     end = False
+    #     while not end:
+    #         data = self.s_exchange.recvfrom(1024)[0]
+    #         msg = data.decode("ascii")
+    #         properties = msg.split("|")
+    #         entry = {}
+    #         for p in properties:
+    #             k, v = p.split("=")
+    #             entry[k] = v
+    #         if entry["TYPE"] == "ORDER_ACK":
+    #             print(entry)
+    #             end = True
 
 if __name__ == "__main__":
     # Test plotting
     oi = OptiverInterface()
-    oi.start_listen()
-    time.sleep(1)
     oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
-    idx = oi.show_plot_monitors()
-    while True:
-        time.sleep(1)
-    oi.close_plot_monitors(idx)
-    oi.stop_listen()
+    oi.show_plot_monitors()
+    oi.listen()
