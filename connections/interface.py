@@ -82,68 +82,133 @@ class OptiverInterface:
         print("Stopping with listening to the server's data...")
         self.listen_process.terminate()
 
+    def get_timeframe(self, product, now = None, timeframe = 60):
+        if now is None: now = datetime.datetime.now()
+        data = self._products[product]
+        new_data = {'PRICES' : [], 'TRADES' : []}
+        for t,bp,bv,ap,av in data['PRICES']:
+            if 0 <= (now - t).total_seconds() <= timeframe:
+                new_data['PRICES'].append((t,bp,bv,ap,av))
+        new_data['PRICES'].sort(key = lambda x : x[0])
+        for t,s,p,v in data['TRADES']:
+            if 0 <= (now - t).total_seconds() <= timeframe:
+                new_data['TRADES'].append((t,s,p,v))
+        new_data['TRADES'].sort(key = lambda x : x[0])
+        return new_data
+
+    def get_time_price(self, product, time = None):
+        assert product in self.products
+        if time is None: time = datetime.datetime.now()
+        if time <= self.products[product]['PRICES'][0][0]:
+            return (1e8,1e8,1e8,1e8)
+        for t,bp,bv,ap,av in reversed(self.products[product]['PRICES']):
+            if t <= time:
+                return (bp,bv,ap,av)
+
     def plot_product_price(self, product, ax, options = {}):
         assert product in self.products
-        ax.clear()
-        now = datetime.datetime.now()
+        if options.get('clear',True): ax.clear()
+
+        # Get the data
+        now = options.get('now', datetime.datetime.now())
+        timeframe = options.get('timeframe', 60)
+        data = self.get_timeframe(product, now = now, timeframe = timeframe)
 
         # Get the product prices
-        timestamps = list(x[0] for x in self.products[product]['PRICES'])
-        bid_prices = list(x[1] for x in self.products[product]['PRICES'])
-        ask_prices = list(x[3] for x in self.products[product]['PRICES'])
-        timeframe = options.get('timeframe', 60)
-        ts,bps,aps = [],[],[]
-        for t,bp,ap in zip(timestamps,bid_prices,ask_prices):
-            if 0 <= (now - t).total_seconds() <= timeframe + 5:
-                ts.append(t)
-                bps.append(bp)
-                aps.append(ap)
-        ax.plot(ts, bps, label = 'bid prices', color = 'blue')
-        ax.plot(ts, aps, label = 'ask prices', color = 'red')
+        ts = list(x[0] for x in self.products[product]['PRICES'])
+        bps = list(x[1] for x in self.products[product]['PRICES'])
+        aps = list(x[3] for x in self.products[product]['PRICES'])
+        ax.step(ts, bps, where = 'post', label = 'bid prices', color = 'blue')
+        ax.step(ts, aps, where = 'post', label = 'ask prices', color = 'red')
 
         # Get the product trades
-        timestamps = list(x[0] for x in self.products[product]['TRADES'])
-        sides = list(x[1] for x in self.products[product]['TRADES'])
-        prices = list(x[2] for x in self.products[product]['TRADES'])
-        volumes = list(x[3] for x in self.products[product]['TRADES'])
+        timestamps = list(x[0] for x in data['TRADES'])
+        sides = list(x[1] for x in data['TRADES'])
+        prices = list(x[2] for x in data['TRADES'])
+        volumes = list(x[3] for x in data['TRADES'])
         ask_ts,ask_ps,ask_vs = [],[],[]
         bid_ts,bid_ps,bid_vs = [],[],[]
         for t,s,p,v in zip(timestamps,sides,prices,volumes):
-            if 0 <= (now - t).total_seconds() <= timeframe + 5:
-                if s == 'ASK':
-                    ask_ts.append(t)
-                    ask_ps.append(p)
-                    ask_vs.append(v/4)
-                else:
-                    bid_ts.append(t)
-                    bid_ps.append(p)
-                    bid_vs.append(v/4)
-        ax.scatter(ask_ts, ask_ps, s = ask_vs, label = 'trades', color = 'red')
-        ax.scatter(bid_ts, bid_ps, s = bid_vs, label = 'trades', color = 'blue')
+            if s == 'ASK':
+                ask_ts.append(t)
+                ask_ps.append(p)
+                ask_vs.append(v/4)
+            else:
+                bid_ts.append(t)
+                bid_ps.append(p)
+                bid_vs.append(v/4)
+        ax.scatter(ask_ts, ask_ps, s = ask_vs, label = 'ask trades', color = 'red')
+        ax.scatter(bid_ts, bid_ps, s = bid_vs, label = 'bid trades', color = 'blue')
 
+        for t,p,v in zip(ask_ts,ask_ps,ask_vs):
+            ax.text(t, p, str(v), va = 'baseline', ha = 'center')
+        for t,p,v in zip(bid_ts,bid_ps,bid_vs):
+            ax.text(t, p, str(v), va = 'baseline', ha = 'center')
+
+        self.set_default_figure_layout(now, timeframe, ax)
         ax.set_title('Product: {}'.format(product))
-        ax.set_xlabel('Time')
-        ax.set_xlim((now - datetime.timedelta(seconds = timeframe), now))
-        ax.xaxis.set_major_locator(matplotlib.dates.SecondLocator())
-        ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%Y:%M:%S'))
-        ax.tick_params(axis = 'x', labelrotation = 90)
         ax.set_ylabel('Price')
-        # if ask_prices and bid_prices and prices:
-        #     ax.set_ylim((min(min(bid_prices),min(prices)), max(max(ask_prices),max(prices))))
+
+        if options.get('draw', True): ax.figure.canvas.draw()
+
+    def plot_product_volume(self, product, ax, options = {}):
+        assert product in self.products
+        if options.get('clear',True): ax.clear()
+
+        # Get the data
+        now = options.get('now', datetime.datetime.now())
+        timeframe = options.get('timeframe', 60)
+        data = self.get_timeframe(product, now = now, timeframe = timeframe)
+
+        # Get the product volumes
+        ts = list(x[0] for x in data['TRADES'])
+        ss = list(x[1] for x in data['TRADES'])
+        vs = list(x[3] for x in data['TRADES'])
+
+        ask_ts,ask_vs,bid_ts,bid_vs = [],[],[],[]
+
+        for t,s,v in zip(ts,ss,vs):
+            bp,bv,ap,av = self.get_time_price(product, t - datetime.timedelta(milliseconds = 1))
+            if s == 'ASK':
+                ask_ts.append(t)
+                ask_vs.append(v/av)
+            else:
+                bid_ts.append(t)
+                bid_vs.append(v/bv)
+        ax.scatter(ask_ts, ask_vs, label = 'ask volumes', color = 'red', marker = options.get('marker','o'))
+        ax.scatter(bid_ts, bid_vs, label = 'bid volumes', color = 'blue', marker = options.get('marker','o'))
+
+        self.set_default_figure_layout(now, timeframe, ax)
+        ax.set_title('Volumes')
+        ax.set_ylabel('Volume')
+        ax.set_ylim((0,1))
+
         if options.get('draw', True): ax.figure.canvas.draw()
 
     def setup_plot_monitor(self, products, **kwargs):
         fig = plt.figure()
         timer = fig.canvas.new_timer(interval = 500)
         kwargs['draw'] = False
+        vol_kwargs = kwargs.copy()
+        vol_ax = fig.add_subplot(3,1,3)
         for i,product in enumerate(products):
-            if i == len(products) - 1: kwargs['draw'] = True
             print("Starting a monitor of the prices of product {}...".format(product))
-            ax = fig.add_subplot(2,1,i+1)
+            ax = fig.add_subplot(3,1,i+1)
             timer.add_callback(self.plot_product_price, product, ax, kwargs.copy())
+            if i == len(products) - 1: vol_kwargs['draw'] = True
+            timer.add_callback(self.plot_product_volume, product, vol_ax, vol_kwargs.copy())
+            vol_kwargs['clear'] = False
+            vol_kwargs['marker'] = 'x'
         timer.start()
         self.product_monitor_figures.append(fig)
         return fig
+
+    def set_default_figure_layout(self, now, timeframe, ax):
+        ax.set_xlabel('Time')
+        ax.set_xlim((now - datetime.timedelta(seconds = timeframe), now))
+        ax.xaxis.set_major_locator(matplotlib.dates.SecondLocator())
+        ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%Y:%M:%S'))
+        ax.tick_params(axis = 'x', labelrotation = 90)
 
     def show_plot_monitors(self):
         pmp = multiprocessing.Process(target = product_monitor)
@@ -190,11 +255,11 @@ class OptiverInterface:
                 print(entry)
                 end = True
 
-
 if __name__ == "__main__":
     # Test plotting
     oi = OptiverInterface()
     oi.start_listen()
+    time.sleep(1)
     oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
     # oi.setup_plot_monitor()
     idx = oi.show_plot_monitors()
