@@ -1,5 +1,3 @@
-import numpy as np
-np.set_printoptions(linewidth=200)
 import matplotlib.pyplot as plt
 import matplotlib.dates
 import socket
@@ -7,11 +5,14 @@ import multiprocessing
 import time
 import pickle
 import datetime
+import numpy as np
+np.set_printoptions(linewidth=200)
 
 UDP_IP = "188.166.115.7"
 UDP_BROADCAST_PORT = 7001
 UDP_EXCHANGE_PORT = 8001
 HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
+
 
 def listen_to_server(sock, queue):
     while True:
@@ -24,7 +25,7 @@ def listen_to_server(sock, queue):
             entry[k] = v
         entry['TIMESTAMP'] = datetime.datetime.now()
         queue.put(entry)
-        # print("The following message was received:", entry)
+
 
 def product_monitor():
     plt.show()
@@ -83,7 +84,7 @@ class OptiverInterface:
         print("Stopping with listening to the server's data...")
         self.listen_process.terminate()
 
-    def plot_product_price(self, product, ax, options = {}):
+    def plot_product_price(self, product, ax, options={}):
         assert product in self.products
         ax.clear()
         now = datetime.datetime.now()
@@ -93,8 +94,8 @@ class OptiverInterface:
         bid_prices = list(x[1] for x in self.products[product]['PRICES'])
         ask_prices = list(x[3] for x in self.products[product]['PRICES'])
         timeframe = options.get('timeframe', 60)
-        ts,bps,aps = [],[],[]
-        for t,bp,ap in zip(timestamps,bid_prices,ask_prices):
+        ts, bps, aps = [], [], []
+        for t, bp, ap in zip(timestamps, bid_prices, ask_prices):
             if 0 <= (now - t).total_seconds() <= timeframe:
                 ts.append(t)
                 bps.append(bp)
