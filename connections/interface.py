@@ -261,34 +261,8 @@ if __name__ == "__main__":
     oi.start_listen()
     time.sleep(1)
     oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
-    # oi.setup_plot_monitor()
     idx = oi.show_plot_monitors()
     while True:
         time.sleep(1)
     oi.close_plot_monitors(idx)
     oi.stop_listen()
-
-    # Saving
-    # start = time.time()
-    # end = False
-    # i = 1
-    # while not end:
-    #     try:
-    #         if (time.time() - start) % 600 < 10:
-    #             pickling_on = open("data{}.pickle".format(i), "wb")
-    #             pickle.dump(oi._products, pickling_on)
-    #             pickling_on.close()
-    #             i += 1
-    #             time.sleep(20)
-    #         time.sleep(2)
-    #     except KeyboardInterrupt:
-    #         pickling_on = open("data{}.pickle".format(i), "wb")
-    #         pickle.dump(oi._products, pickling_on)
-    #         pickling_on.close()
-    #         time.sleep(20)
-    #         end = True
-
-    # oi.stop_listen()
-    # oi.sell("GROUP25TESTING", "SP-FUTURE", "2950.0", "50")
-    # time.sleep(1)
-    # print(oi.products)
