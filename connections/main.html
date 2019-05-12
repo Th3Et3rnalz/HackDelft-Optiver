@@ -1,0 +1,76 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <title>SRP Ground Station</title>
+        <link rel="stylesheet" type="text/css" href="static/main.css">
+        <link rel="stylesheet" href="static/fontawesome-free-5.7.2-web/js/all.css">
+    </head>
+    <body>
+        <script src="static/socketIO.js"></script>
+        <script src="static/ChartBundle.js"></script>
+
+        <div class="container">
+		        <canvas id="canvas1"></canvas>
+	      </div>
+        <div class="container-bottom">
+            <canvas id="canvas2"></canvas>
+        </div>
+        <h1 id="filler"></h1>
+
+        <h1 id="title"><img src="static/optiver.png" height="20px"></h1>
+
+        <div id="main_body">
+          <form name="myForm" onsubmit="return validateForm()">Username: <input type="text" name="fname">
+            <input type="submit" value="Submit">
+          </form>
+          <h1>Username: <span id='username'></span></h1>
+          <div class="vertical">
+
+            <div class="squarecontainer">
+              <h2>Exposure</h2>
+              <p id="exposure">--</p>
+            </div>
+
+            <div class="squarecontainer">
+              <h2>PnL</h2>
+              <p id="pnl">--</p>
+            </div>
+
+            <div class="squarecontainer">
+              <h2>Locked PnL</h2>
+              <p id="pnl_locked">--</p>
+            </div>
+
+          </div>
+
+          <div class="vertical-second">
+
+
+            <div class="squarecontainer">
+              <h2>SP position</h2>
+              <p id="sp">--</p>
+            </div>
+
+            <div class="squarecontainer">
+              <h2>ESX position</h2>
+              <p id="esx">--</p>
+            </div>
+
+            <div class="squarecontainer last">
+              <h2>Volume traded</h2>
+              <p id="volume">--</p>
+            </div>
+
+          </div>
+
+        </div>
+
+
+        <script src="static/main.js"></script>
+        <script src="static/fontawesome-free-5.7.2-web/js/all.js"></script>
+    </body>
+</html>
