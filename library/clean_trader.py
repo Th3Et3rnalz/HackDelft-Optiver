@@ -21,9 +21,9 @@ trade = None
 def callback(entry):
     global trade
 
-    print(entry)
+    #print(entry)
     if entry['TYPE'] == 'PRICE':
-        print(trade)
+        #print(trade)
         # Update market variables
         old_market[entry['FEEDCODE']] = current_market[entry['FEEDCODE']]
         current_market[entry['FEEDCODE']] = entry
@@ -42,7 +42,7 @@ def callback(entry):
             feedcode = "SP-FUTURE"
 
         if trade['SIDE'] == 'BID':
-            print("Received bid")
+            #print("Received bid")
             # Received trade is BID so BUY
             percentage_bought = float(trade['VOLUME']) / float(current_market[trade['FEEDCODE']]['BID_VOLUME'])
 
