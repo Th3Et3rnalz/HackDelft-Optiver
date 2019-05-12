@@ -13,32 +13,125 @@ UDP_BROADCAST_PORT = 7001
 UDP_EXCHANGE_PORT = 8001
 HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
 
+percentage_bought_threshold = 0.7
+risk_factor = 0.2
+
 class Trader:
-    def __init__(self):
+    def __init__(self, name):
+        self.name = name
         self.position = {}
         self.cash = 0
+        self.stashed_trades = {}
+        self.acknowledgements = multiprocessing.Queue()
         self.oi = OptiverInterface()
+        self.oi.append_callback(self.handle_stash)
         self.oi.append_callback(self.perform_trade)
         self.oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
         self.oi.show_plot_monitors()
         self.oi.listen()
 
-    def perform_trade(self, entry):
+    def stash_buy(self, product, price, volume):
+        self.stashed_trades[product] = ('BUY', price, volume)
+
+    def stash_sell(self, product, price, volume):
+        self.stashed_trades[product] = ('SELL', price, volume)
+
+    def handle_stash(self, entry):
         if entry['TYPE'] == 'TRADE':
             product = entry['FEEDCODE']
-            s = entry['SIDE']
-            p = float(entry['PRICE'])
-            v = int(entry['VOLUME'])
-            t = entry['TIMESTAMP']
-            print("Product:", product)
-            print("Side:", s)
-            print("Price:", p)
-            print("Volume:", v)
-            bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds=1)))
-            print("Bid volume:", bv)
-            print("Ask volume:", av)
-            f = v/av if s == 'ASK' else v/bv
-            print("Fraction:", f)
+            other_product = 'ESX-FUTURE' if product == 'SP-FUTURE' else 'SP-FUTURE'
+            if other_product in self.stashed_trades and self.stashed_trades[other_product] is not None:
+                action, price, volume = self.stashed_trades[other_product]
+                if action == 'BUY':
+                    self.place_buy(other_product, price, volume)
+                else:
+                    self.place_sell(other_product, price, volume)
+                self.stashed_trades[other_product] = None
+
+    def place_buy(self, product, price, volume):
+        print("[{}] {} PLACED. PRODUCT: {}. PRICE: {}. VOLUME: {}.".format(datetime.datetime.now(), 'BUY', product, price, volume))
+        p = multiprocessing.Process(target = self.oi.buy, args = [self.name, product, price, volume, self.acknowledgements])
+        p.start()
+
+    def place_sell(self, product, price, volume):
+        print("[{}] {} PLACED. PRODUCT: {}. PRICE: {}. VOLUME: {}.".format(datetime.datetime.now(), 'SELL', product, price, volume))
+        p = multiprocessing.Process(target = self.oi.sell, args = [self.name, product, price, volume, self.acknowledgements])
+        p.start()
+
+    def synchronize(self):
+        while not self.acknowledgements.empty():
+            ack = self.acknowledgements.get_nowait()
+            ack['TIMESTAMP'] = datetime.datetime.now()
+            if int(ack['VOLUME']) > 0:
+                print("[{}] {} ACKNOWLEDGED. PRODUCT: {}. PRICE: {}. VOLUME: {}.".format(ack['TIMESTAMP'], ack['ACTION'], ack['FEEDCODE'], ack['PRICE'], ack['VOLUME']))
+                self.oi.data_queue.put(ack)
+                if ack['ACTION'] == 'BUY':
+                    self.cash -= float(ack['PRICE']) * ack['VOLUME']
+                    if ack['FEEDCODE'][6:] not in self.position: self.position[ack['FEEDCODE'][6:]] = ack['VOLUME']
+                    else: self.position[ack['FEEDCODE'][6:]] += ack['VOLUME']
+                else:
+                    self.cash += float(ack['PRICE']) * ack['VOLUME']
+                    if ack['FEEDCODE'][6:] not in self.position: self.position[ack['FEEDCODE'][6:]] = -ack['VOLUME']
+                    else: self.position[ack['FEEDCODE'][6:]] -= ack['VOLUME']
+            else:
+                print("[{}] {} REJECTED. PRODUCT: {}.".format(ack['TIMESTAMP'], ack['ACTION'], ack['FEEDCODE']))
+            print(self)
+
+    def __str__(self):
+        ss = []
+        ss.append('Cash: ${}.'.format(self.cash))
+        for product,position in self.position.items():
+            ss.append('Position {}: {}.'.format(product,position))
+        ss.append('Total: ${}.'.format(self.cash + sum(position * self.oi.get_time_price(product)[0] for product,position in self.position.items())))
+        return '  ' + '\n  '.join(ss)
+
+    def perform_trade(self, entry):
+        self.synchronize()
+        if entry['TYPE'] == 'PRICE':
+
+            # Get the relevant information on which to base the decision
+            product,(t,s,p,v) = self.oi.get_last_trade()
+            other_product = 'ESX-FUTURE' if product == 'SP-FUTURE' else 'SP-FUTURE'
+            bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
+            obp,obv,oap,oav = self.oi.get_time_price(other_product, (t - datetime.timedelta(milliseconds = 1)))
+            nbp,nbv,nap,nav = self.oi.get_time_price(other_product, datetime.datetime.now())
+
+            if s == 'BID':
+                # print("Received bid.")
+                percentage_bought = v / bv
+                percentage_bought_factor = 0
+                if percentage_bought > percentage_bought_threshold:
+                    percentage_bought_factor = percentage_bought_factor = (percentage_bought - percentage_bought_threshold)/(1. - percentage_bought_threshold)
+                trade_volume_factor = v / 500
+
+                price_difference = nap - oap
+                price_difference_factor = 0
+                if price_difference < - 0.5:
+                    price_difference_factor = -price_difference
+
+                amount = np.ceil(risk_factor * nav * percentage_bought_factor * trade_volume_factor * price_difference_factor / 4).astype(int)
+                if amount > 0:
+                    self.stash_buy(other_product, nap, amount)
+
+            else:
+                # print("Received ask.")
+
+                # Received trade is ASK so SELL
+                percentage_bought = v / av
+                percentage_bought_factor = 0.
+                if percentage_bought > percentage_bought_threshold:
+                    percentage_bought_factor = (percentage_bought - percentage_bought_threshold)/(1. - percentage_bought_threshold)
+                trade_volume_factor = v / 500
+
+                price_difference = nap - oap
+                price_difference_factor = 0
+                if price_difference > 0.5:
+                    price_difference_factor = price_difference
+
+                amount = np.ceil(risk_factor * nbv * percentage_bought_factor * trade_volume_factor * price_difference_factor / 4).astype(int)
+
+                if amount > 0:
+                    self.stash_sell(other_product, nbp, amount)
 
 def product_monitor():
     plt.show()
@@ -58,7 +151,10 @@ class OptiverInterface:
 
     def synchronize(self):
         while not self.data_queue.empty():
-            self._update_products(self.data_queue.get_nowait())
+            entry = self.data_queue.get_nowait()
+            # if entry['FEEDCODE'] not in set(['ESX-FUTURE', 'SP-FUTURE']):
+            #     print(entry['FEEDCODE'])
+            self._update_products(entry)
 
     def append_callback(self, c):
         self.callbacks.append(c)
@@ -66,7 +162,7 @@ class OptiverInterface:
     def _update_products(self, entry):
         assert set(['TYPE','FEEDCODE','TIMESTAMP']) <= set(entry.keys())
         assert entry['TYPE'] in set(['PRICE','TRADE'])
-        assert entry['FEEDCODE'] in set(['ESX-FUTURE','SP-FUTURE'])
+        # assert entry['FEEDCODE'] in set(['ESX-FUTURE','SP-FUTURE'])
         timestamp = entry['TIMESTAMP']
         type = entry['TYPE']
         product = entry['FEEDCODE']
@@ -101,6 +197,9 @@ class OptiverInterface:
             self.data_queue.put(entry)
             for c in self.callbacks:
                 c(entry)
+
+    def get_last_trade(self):
+        return max(((product,x['TRADES'][-1]) for product,x in self.products.items() if len(x['TRADES']) > 0), key = lambda x : x[1][0])
 
     def get_timeframe(self, product, now = None, timeframe = 60):
         if now is None: now = datetime.datetime.now()
@@ -145,8 +244,8 @@ class OptiverInterface:
         ts = list(x[0] for x in self.products[product]['PRICES'])
         bps = list(x[1] for x in self.products[product]['PRICES'])
         aps = list(x[3] for x in self.products[product]['PRICES'])
-        ax.step(ts, bps, where = 'post', label = 'bid prices', color = 'blue')
-        ax.step(ts, aps, where = 'post', label = 'ask prices', color = 'red')
+        ax.step(ts, bps, where = 'post', label = 'bid prices', color = options.get('bid color', 'blue'))
+        ax.step(ts, aps, where = 'post', label = 'ask prices', color = options.get('ask color', 'red'))
 
         # Get the product trades
         timestamps = list(x[0] for x in data['TRADES'])
@@ -164,8 +263,8 @@ class OptiverInterface:
                 bid_ts.append(t)
                 bid_ps.append(p)
                 bid_vs.append(v/4)
-        ax.scatter(ask_ts, ask_ps, s = ask_vs, label = 'ask trades', color = 'red')
-        ax.scatter(bid_ts, bid_ps, s = bid_vs, label = 'bid trades', color = 'blue')
+        ax.scatter(ask_ts, ask_ps, s = ask_vs, label = 'ask trades', color = options.get('ask color', 'red'))
+        ax.scatter(bid_ts, bid_ps, s = bid_vs, label = 'bid trades', color = options.get('bid color', 'blue'))
 
         for t,p,v in zip(ask_ts,ask_ps,ask_vs):
             ax.text(t, p, str(v), va = 'baseline', ha = 'center')
@@ -221,11 +320,16 @@ class OptiverInterface:
         timer = fig.canvas.new_timer(interval = 500)
         kwargs['draw'] = False
         vol_kwargs = kwargs.copy()
+        trade_kwargs = kwargs.copy()
+        trade_kwargs['clear'] = False
+        trade_kwargs['ask color'] = 'cyan'
+        trade_kwargs['bid color'] = 'magenta'
         vol_ax = fig.add_subplot(3,1,3)
         for i,product in enumerate(products):
             print("Starting a monitor of the prices of product {}...".format(product))
             ax = fig.add_subplot(3,1,i+1)
             timer.add_callback(self.plot_product_price, product, ax, kwargs.copy())
+            timer.add_callback(self.plot_product_price, 'TRADE_' + product, ax, trade_kwargs.copy())
             if i == len(products) - 1: vol_kwargs['draw'] = True
             timer.add_callback(self.plot_product_volume, product, vol_ax, vol_kwargs.copy())
             vol_kwargs['clear'] = False
@@ -254,38 +358,56 @@ class OptiverInterface:
         pmp.terminate()
         del self.product_monitor_processes[idx]
 
-    def buy(self, user, feedcode, price, volume):
+    def buy(self, user, feedcode, price, volume, queue = None):
         text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
-        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry[0] == "ORDER_ACK":
-                print(entry)
-                end = True
+        # print("----------------")
+        # print(text)
+        # print("----------------")
+        # time.sleep(.1 * sleep)
+        self.s_exchange.sendto(text.encode('ascii'), (UDP_IP, UDP_EXCHANGE_PORT))
+        data = self.s_exchange.recvfrom(1024)[0]
+        msg = data.decode("ascii")
+        properties = msg.split("|")
+        entry = {}
+        for p in properties:
+            k, v = p.split("=")
+            entry[k] = v
+        assert entry['TYPE'] == "ORDER_ACK"
+        entry['TYPE'] = 'TRADE'
+        entry['FEEDCODE'] = 'TRADE_' + entry['FEEDCODE']
+        entry['VOLUME'] = int(entry['TRADED_VOLUME'])
+        entry['SIDE'] = 'ASK'
+        entry['ACTION'] = 'BUY'
+        if queue is None:
+            return entry
+        else:
+            queue.put(entry)
 
-    def sell(self, user, feedcode, price, volume):
-        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
-        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry["TYPE"] == "ORDER_ACK":
-                print(entry)
-                end = True
+    def sell(self, user, feedcode, price, volume, queue = None):
+        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
+        # print("----------------")
+        # print(text)
+        # print("----------------")
+        # time.sleep(sleep * .1)
+        self.s_exchange.sendto(text.encode('ascii'), (UDP_IP, UDP_EXCHANGE_PORT))
+        data = self.s_exchange.recvfrom(1024)[0]
+        msg = data.decode("ascii")
+        properties = msg.split("|")
+        entry = {}
+        for p in properties:
+            k, v = p.split("=")
+            entry[k] = v
+        assert entry['TYPE'] == "ORDER_ACK"
+        entry['TYPE'] = 'TRADE'
+        entry['FEEDCODE'] = 'TRADE_' + entry['FEEDCODE']
+        entry['VOLUME'] = -int(entry['TRADED_VOLUME'])
+        entry['SIDE'] = 'BID'
+        entry['ACTION'] = 'SELL'
+        if queue is None:
+            return entry
+        else:
+            queue.put(entry)
 
 if __name__ == "__main__":
     # Test plotting
-    trader = Trader()
+    trader = Trader(name = 'hendrik-ido-ambacht-3')
