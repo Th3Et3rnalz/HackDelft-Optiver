@@ -2,6 +2,7 @@ import numpy as np
 np.set_printoptions(linewidth=200)
 import matplotlib.pyplot as plt
 import matplotlib.dates
+import matplotlib.ticker
 import socket
 import multiprocessing
 import time
@@ -25,10 +26,10 @@ class Trader:
         self.acknowledgements = multiprocessing.Queue()
         self.reset_ctr = 0
         self.oi = OptiverInterface()
-        self.oi.append_callback(self.handle_stash)
-        self.oi.append_callback(self.perform_trade)
+        # self.oi.append_callback(self.handle_stash)
+        # self.oi.append_callback(self.perform_trade)
         self.oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
-        self.oi.setup_gap_plot()
+        # self.oi.setup_gap_plot()
         self.oi.show_plot_monitors()
         self.oi.listen()
 
@@ -249,6 +250,7 @@ class OptiverInterface:
         self.set_default_figure_layout(now, timeframe, ax)
         ax.set_title('Product: {}'.format(product))
         ax.set_ylabel('Price')
+        ax.legend(loc = 'upper left')
 
         if options.get('draw', True): ax.figure.canvas.draw()
 
@@ -294,21 +296,11 @@ class OptiverInterface:
         fig = plt.figure()
         timer = fig.canvas.new_timer(interval = 500)
         kwargs['draw'] = False
-        vol_kwargs = kwargs.copy()
-        trade_kwargs = kwargs.copy()
-        trade_kwargs['clear'] = False
-        trade_kwargs['ask color'] = 'cyan'
-        trade_kwargs['bid color'] = 'magenta'
-        vol_ax = fig.add_subplot(3,1,3)
         for i,product in enumerate(products):
             # print("Starting a monitor of the prices of product {}...".format(product))
-            ax = fig.add_subplot(3,1,i+1)
+            ax = fig.add_subplot(2,1,i+1)
             timer.add_callback(self.plot_product_price, product, ax, kwargs.copy())
-            timer.add_callback(self.plot_product_price, 'TRADE_' + product, ax, trade_kwargs.copy())
-            if i == len(products) - 1: vol_kwargs['draw'] = True
-            timer.add_callback(self.plot_product_volume, product, vol_ax, vol_kwargs.copy())
-            vol_kwargs['clear'] = False
-            vol_kwargs['marker'] = 'x'
+            kwargs['draw'] = True
         timer.start()
         self.product_monitor_figures.append(fig)
         return fig
@@ -316,8 +308,7 @@ class OptiverInterface:
     def set_default_figure_layout(self, now, timeframe, ax):
         ax.set_xlabel('Time')
         ax.set_xlim((now - datetime.timedelta(seconds = timeframe), now))
-        ax.xaxis.set_major_locator(matplotlib.dates.SecondLocator())
-        ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%Y:%M:%S'))
+        ax.xaxis.set_major_locator(matplotlib.ticker.NullLocator())
         ax.tick_params(axis = 'x', labelrotation = 90)
 
     def update_gap_plot(self, ax):
