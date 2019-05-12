@@ -3,7 +3,6 @@ from aiohttp import web
 import socketio
 import inspect
 import time
-from threading import Timer
 import multiprocessing
 
 
@@ -16,6 +15,13 @@ all_data = []
 start_it = 0
 
 
+def fn(q):
+    while True:
+        print("Hey there")
+        time.sleep(0.2)
+        update_it(q)
+
+
 def update_it(queue):
     global specific_data
     global all_data
@@ -25,7 +31,7 @@ def update_it(queue):
         url = 'http://188.166.115.7/data/pnls.csv'
         response = urllib.request.urlopen(url)
 
-        # print("We go the data")
+        print("We go the data")
         data = response.read()  # a `bytes` object
         text = data.decode('utf-8')
 
@@ -40,7 +46,7 @@ def update_it(queue):
             data.append(i.split(";"))
 
         specific_data = {}
-        print(data)
+        # print(data)
         for i in data[1:]:
             try:
                 # print("pnl: {}, lpnl: {}, type_pnl: {}, type_Lpnl: {}".format(i[1], i[2], type(i[1]), type(i[2])))
@@ -55,16 +61,15 @@ def update_it(queue):
     except TimeoutError:
         print("ERROR, SH*T NOT WORKING, AGAIN...")
 
-    update_it(queue)
-
 
 q = multiprocessing.Queue()
-p = multiprocessing.Process(target=update_it, args=[q])
+p = multiprocessing.Process(target=fn, args=[q])
 p.start()
 
 sio = socketio.AsyncServer()
 app = web.Application()
 sio.attach(app)
+
 
 async def index(request):
     if inspect.isclass(request) is not True:

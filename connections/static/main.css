@@ -37,7 +37,11 @@ html{
     letter-spacing: 8px;
 }
 
-h1{
+main-body > #user, form{
+  font-family: main-clean;
+}
+
+h1#user{
   font-family: main-clean;
 }
 

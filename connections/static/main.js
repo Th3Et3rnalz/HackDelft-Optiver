@@ -18,7 +18,7 @@ socket.on("data", function(data) {
         new_data = 1
     }
 
-    console.log(data)
+    // console.log(data)
     update_widgets(data);
     addData(data);
 })
@@ -79,8 +79,9 @@ var config1 = {
 window.user;
 
 function addData(data_from_server) {
-    console.log("Adding data to plot")
-    user = validateForm()
+    console.log("Adding data to plot");
+    user = validateForm();
+    user = user[0];
     var new_config = config1;
     // console.log(data_from_server.length);
     // console.log(new_config.data.datasets[0].data.length);
@@ -99,17 +100,24 @@ function addData(data_from_server) {
 
 function validateForm() {
   user = document.forms["myForm"]["fname"].value;
-  document.forms["myForm"]["fname"].value = user
-  // if (x == "") {
-  //   alert("Name must be filled out");
-  //   return false;
-  // }
-  return "G25_TERMINATOR"
+  // console.log(user, typeof user);
+  if (user == ""){
+    user = document.getElementById("username").innerHTML;
+    // alert(user);
+    var change = "False";
+  }
+  else {
+    document.getElementById("username").innerHTML = user;
+    var change = "True";
+  }
+  return [user, change]
 }
 
 
 function update_widgets(data_from_server) {
   var user = validateForm()
+  user = user[0];
+  var change = user[1];
   // console.log(typeof user);
   var username = document.getElementById('username');
   var pnl = document.getElementById('pnl');
@@ -121,12 +129,27 @@ function update_widgets(data_from_server) {
   var volume = document.getElementById('volume');
   var exposure = document.getElementById('exposure');
 
-  // console.log(typeof data_from_server)
-  // console.log(data_from_server[data_from_server.length -1])
-  // console.log(data_from_server[data_from_server.length -1][user])
-  // console.log(user)
-  exposure.innerHTML = String(data_from_server[data_from_server.length  -1][user].exposure);
-  username.innerHTML = String(data_from_server[data_from_server.length - 1][user].username);
+  exposure_data = data_from_server[data_from_server.length  -1][user].exposure;
+  console.log(exposure_data);
+  e_data = Number(exposure_data);
+  if (e_data < -1000){
+    exposure.parentNode.style.backgroundColor = "red";
+
+  } else if (1000 <= e_data && e_data <= 1000) {
+    exposure.parentNode.style.backgroundColor = "yellow";
+  } else if (e_data > 1000) {
+    exposure.parentNode.style.backgroundColor = "green";
+  }
+  if (e_data > 0){
+    exposure_data = "+" + String(exposure_data)
+  }
+  exposure.innerHTML = String(exposure_data);
+  if (change == "True"){
+      username.innerHTML = String(data_from_server[data_from_server.length - 1][user].username);
+  }
+  else {
+    console.log("color should have changed");
+  }
   pnl.innerHTML = String(data_from_server[data_from_server.length - 1][user].pnl);
   pnl_locked.innerHTML = String(data_from_server[data_from_server.length - 1][user].lpnl);
   volume.innerHTML = String(data_from_server[data_from_server.length - 1][user].volume);
