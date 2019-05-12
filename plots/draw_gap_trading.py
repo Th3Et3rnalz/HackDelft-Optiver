@@ -2,6 +2,7 @@ import numpy as np
 np.set_printoptions(linewidth=200)
 import matplotlib.pyplot as plt
 import matplotlib.dates
+import matplotlib.ticker
 import socket
 import multiprocessing
 import time
@@ -91,34 +92,19 @@ class Trader:
         if entry['TYPE'] == 'PRICE':
 
             # Get the relevant information on which to base the decision
-            product = entry['FEEDCODE']
-            t = entry['TIMESTAMP']
-            obp,obv,oap,oav = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
-            nbp,nbv,nap,nav = self.oi.get_time_price(product, datetime.datetime.now())
+            product,(t,s,p,v) = self.oi.get_last_trade()
+            other_product = 'SP-FUTURE' if product == 'ESX-FUTURE' else 'ESX-FUTURE'
+            bp,bv,ap,av = self.oi.get_time_price(product, t - datetime.timedelta(milliseconds = 1))
+            nbp,nbv,nap,nav = self.oi.get_time_price(other_product, t + datetime.timedelta(milliseconds = 1))
 
-            if obp > 1e7: return
+            v *= -1 if s == 'ASK' else 1
 
-            if oap - nbp < -.2:
-                v = min(oav,nbv)
-                self.place_buy(product, oap + .1, int(.5*v))
-                self.stash_sell(product, nbp - .1, int(.5*v))
-                self.reset_ctr = 0
-            elif obp - nap > .2:
-                v = min(obv,nav)
-                self.place_sell(product, obp - .1, int(.5*v))
-                self.stash_buy(product, nap + .1, int(.5*v))
-                self.reset_ctr = 0
-            elif self.reset_ctr == 5 and all(x is None for x in self.stashed_trades.values()):
-                for product,position in self.position.items():
-                    if position != 0:
-                        bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
-                        if position > 0:
-                            self.place_sell(product, 1, min(position,int(.5*bv)))
-                        else:
-                            self.place_buy(product, 100000, min(-position,av))
-                self.reset_ctr = 0
-            else:
-                self.reset_ctr += 1
+            if bp > 1e7 or nbp > 1e7: return
+
+            if v / av > .6:
+                self.place_buy(other_product, 100000, min(nav, 300))
+            elif v / av < -.6:
+                self.place_sell(other_product, 1, min(nbv, 300))
 
 def product_monitor():
     plt.show()
@@ -126,14 +112,14 @@ def product_monitor():
 class OptiverInterface:
     def __init__(self):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s.bind(("", 8005))
+        self.s.bind(("", 8006))
         self.s.sendto(HELLO_MESSAGE, (UDP_IP, UDP_BROADCAST_PORT))
         self.product_monitor_processes = {}
         self.product_monitor_figures = []
         self.data_queue = multiprocessing.Queue()
         self.products = {}
         self.s_exchange = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s_exchange.bind(("", 8002))
+        self.s_exchange.bind(("", 8003))
         self.callbacks = []
 
     def synchronize(self):
@@ -328,8 +314,7 @@ class OptiverInterface:
     def set_default_figure_layout(self, now, timeframe, ax):
         ax.set_xlabel('Time')
         ax.set_xlim((now - datetime.timedelta(seconds = timeframe), now))
-        ax.xaxis.set_major_locator(matplotlib.dates.SecondLocator())
-        ax.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%Y:%M:%S'))
+        ax.xaxis.set_major_locator(matplotlib.ticker.NullLocator())
         ax.tick_params(axis = 'x', labelrotation = 90)
 
     def show_plot_monitors(self):
@@ -350,10 +335,10 @@ class OptiverInterface:
         # print("----------------")
         # print(text)
         # print("----------------")
-        # time.sleep(.1 * sleep)
         self.s_exchange.sendto(text.encode('ascii'), (UDP_IP, UDP_EXCHANGE_PORT))
         data = self.s_exchange.recvfrom(1024)[0]
         msg = data.decode("ascii")
+        # print(msg)
         properties = msg.split("|")
         entry = {}
         for p in properties:
@@ -375,10 +360,10 @@ class OptiverInterface:
         # print("----------------")
         # print(text)
         # print("----------------")
-        # time.sleep(sleep * .1)
         self.s_exchange.sendto(text.encode('ascii'), (UDP_IP, UDP_EXCHANGE_PORT))
         data = self.s_exchange.recvfrom(1024)[0]
         msg = data.decode("ascii")
+        # print(msg)
         properties = msg.split("|")
         entry = {}
         for p in properties:
