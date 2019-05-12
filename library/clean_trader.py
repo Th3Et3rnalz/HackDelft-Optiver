@@ -21,9 +21,9 @@ trade = None
 def callback(entry):
     global trade
 
-    print(entry)
+    #print(entry)
     if entry['TYPE'] == 'PRICE':
-        print(trade)
+        #print(trade)
         # Update market variables
         old_market[entry['FEEDCODE']] = current_market[entry['FEEDCODE']]
         current_market[entry['FEEDCODE']] = entry
@@ -42,7 +42,7 @@ def callback(entry):
             feedcode = "SP-FUTURE"
 
         if trade['SIDE'] == 'BID':
-            print("Received bid")
+            #print("Received bid")
             # Received trade is BID so BUY
             percentage_bought = float(trade['VOLUME']) / float(current_market[trade['FEEDCODE']]['BID_VOLUME'])
 
@@ -61,6 +61,7 @@ def callback(entry):
             amount = np.ceil(risk_factor * float(current_market[feedcode]['ASK_VOLUME']) * percentage_bought_factor * trade_volume_factor * price_difference_factor).astype(int)
 
             if amount > 0:
+                print("buy")
                 interface.buy(name, feedcode, 100000, amount)
         else:
             # Received trade is ASK so SELL
@@ -81,6 +82,7 @@ def callback(entry):
             amount = np.ceil(risk_factor * float(current_market[feedcode]['BID_VOLUME']) * percentage_bought_factor * trade_volume_factor * price_difference_factor).astype(int)
 
             if amount > 0:
+                print("sell")
                 interface.sell(name, feedcode, 1, amount)
 
     if entry['TYPE'] == 'TRADE':

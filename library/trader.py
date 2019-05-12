@@ -1,20 +1,23 @@
-from server_interface import ServerInterface
+from trader_class import Trader
 import numpy as np
 import time
-interface = ServerInterface()
-name = "cookie3"
+name = "baas-2"
 
-def callback(entry):
+trades = 0
+def callback(trader, entry):
+    global trades
     if entry['TYPE'] == 'TRADE':
         feedcode = "ESX-FUTURE"
         if entry['FEEDCODE'] == 'ESX-FUTURE':
             feedcode = "SP-FUTURE"
 
         if entry['SIDE'] == 'BID':
-            print("selling")
-            interface.sell(name, feedcode,  1000,np.ceil(int(entry['VOLUME'])).astype(int))
+            trader.sell(feedcode, min(np.ceil(int(entry['VOLUME'])).astype(int),300))
         else:
-            print("buying")
-            interface.buy(name, feedcode, 10000, np.ceil(int(entry['VOLUME'])).astype(int))
-interface.register_callback(callback)
-interface.start_listen()
+            trader.buy(feedcode, min(np.ceil(int(entry['VOLUME'])).astype(int),300))
+        trades +=1
+        if trades % 300 == 0:
+            print("RESETTING POSITIONS")
+            trader.reset_positions()
+trader = Trader(name, callback)
+trader.start_trading()
