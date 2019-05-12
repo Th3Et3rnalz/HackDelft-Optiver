@@ -15,7 +15,7 @@ class ServerInterface:
     HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
     def __init__(self, should_print = False):
         self.s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s.bind(("", 8005))
+        self.s.bind(("", 8009))
         self.s.sendto(self.HELLO_MESSAGE, (self.UDP_IP, self.UDP_BROADCAST_PORT))
         self.listen_process = None
         self.product_monitor_processes = {}
@@ -23,7 +23,7 @@ class ServerInterface:
         self.data_queue = None
         self._products = {}
         self.s_exchange = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.s_exchange.bind(("", 8002))
+        self.s_exchange.bind(("", 8098))
         self._should_print = should_print
 
         self._callbacks = []
@@ -51,10 +51,14 @@ class ServerInterface:
                 entry[k] = v
             entry['TIMESTAMP'] = datetime.datetime.now()
             queue.put(entry)
-            for fn in self._callbacks:
-                fn(entry)
-            if self._should_print:
-                print('[{}] {}'.format(entry['TIMESTAMP'], entry))
+            if entry["TYPE"] == "ORDER_ACK":
+                print(entry)
+                end = True
+            else:
+                for fn in self._callbacks:
+                    fn(entry)
+                if self._should_print:
+                    print('[{}] {}'.format(entry['TIMESTAMP'], entry))
 
     def _update_products(self):
         while not self.data_queue.empty():
@@ -97,37 +101,16 @@ class ServerInterface:
         print("Stopping with listening to the server's data...")
         self.listen_process.terminate()
 
-    def buy(self, user, feedcode, price, volume):
-        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode('ASCII')
+    def send_order(self, user, feedcode, action,  price, volume):
+        text = f"TYPE=ORDER|USERNAME={user}|FEEDCODE={feedcode}|ACTION={action}|PRICE={price}|VOLUME={volume}".encode("ASCII")
         self.s_exchange.sendto(text, (self.UDP_IP, self.UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry["TYPE"] == "ORDER_ACK":
-                print(entry)
-                end = True
+        print("SENDING:", text)
+
+    def buy(self, user, feedcode, price, volume):
+        self.send_order(user, feedcode, 'BUY', price, volume)
 
     def sell(self, user, feedcode, price, volume):
-        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
-        self.s_exchange.sendto(text, (self.UDP_IP, self.UDP_EXCHANGE_PORT))
-        end = False
-        while not end:
-            data = self.s_exchange.recvfrom(1024)[0]
-            msg = data.decode("ascii")
-            properties = msg.split("|")
-            entry = {}
-            for p in properties:
-                k, v = p.split("=")
-                entry[k] = v
-            if entry["TYPE"] == "ORDER_ACK":
-                print(entry)
-                end = True
+        self.send_order(user, feedcode, 'SELL', price, volume)
 
 if __name__ == "__main__":
     interface = ServerInterface()
