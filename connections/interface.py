@@ -23,6 +23,7 @@ class Trader:
         self.cash = 0
         self.stashed_trades = {}
         self.acknowledgements = multiprocessing.Queue()
+        self.reset_ctr = 0
         self.oi = OptiverInterface()
         self.oi.append_callback(self.handle_stash)
         self.oi.append_callback(self.perform_trade)
@@ -90,60 +91,34 @@ class Trader:
         if entry['TYPE'] == 'PRICE':
 
             # Get the relevant information on which to base the decision
-            product,(t,s,p,v) = self.oi.get_last_trade()
-            other_product = 'ESX-FUTURE' if product == 'SP-FUTURE' else 'SP-FUTURE'
-            bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
-            obp,obv,oap,oav = self.oi.get_time_price(other_product, (t - datetime.timedelta(milliseconds = 1)))
-            nbp,nbv,nap,nav = self.oi.get_time_price(other_product, datetime.datetime.now())
+            product = entry['FEEDCODE']
+            t = entry['TIMESTAMP']
+            obp,obv,oap,oav = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
+            nbp,nbv,nap,nav = self.oi.get_time_price(product, datetime.datetime.now())
 
-            if s == 'BID':
-                # print("Received bid.")
-                percentage_bought = v / bv
-                percentage_bought_factor = 0
-                if percentage_bought > percentage_bought_threshold:
-                    percentage_bought_factor = percentage_bought_factor = (percentage_bought - percentage_bought_threshold)/(1. - percentage_bought_threshold)
-                trade_volume_factor = v / 500
+            if obp > 1e7 or oap > 1e7 or nbp > 1e7 or nav > 1e7: return
 
-                price_difference = nap - oap
-                price_difference_factor = 0
-                if price_difference < - 0.5:
-                    price_difference_factor = -price_difference
-
-                stock_factor = 1.
-                if other_product in self.position and self.position[other_product] < -1000:
-                    stock_factor = abs(self.position[other_product]) / 1000
-                elif other_product in self.position and self.position[other_product] > 1000:
-                    stock_factor = 1000 / self.position[other_product]
-
-                amount = np.ceil(risk_factor * nav * percentage_bought_factor * trade_volume_factor * price_difference_factor * stock_factor).astype(int)
-                if amount > 0:
-                    self.stash_buy(other_product, nap, amount)
-
+            if oap - nbp < -.2:
+                v = min(oav,nbv)
+                self.place_buy(product, oap + .1, int(.5*v))
+                self.stash_sell(product, nbp - .1, int(.5*v))
+                self.reset_ctr = 0
+            elif obp - nap > .2:
+                v = min(obv,nav)
+                self.place_sell(product, obp - .1, int(.5*v))
+                self.stash_buy(product, nap + .1, int(.5*v))
+                self.reset_ctr = 0
+            elif self.reset_ctr == 5 and all(x is None for x in self.stashed_trades.values()):
+                for product,position in self.position.items():
+                    if position != 0:
+                        bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds = 1)))
+                        if position > 0:
+                            self.place_sell(product, 1, min(position,int(.5*bv)))
+                        else:
+                            self.place_buy(product, 100000, min(-position,av))
+                self.reset_ctr = 0
             else:
-                # print("Received ask.")
-
-                # Received trade is ASK so SELL
-                percentage_bought = v / av
-                percentage_bought_factor = 0.
-                if percentage_bought > percentage_bought_threshold:
-                    percentage_bought_factor = (percentage_bought - percentage_bought_threshold)/(1. - percentage_bought_threshold)
-                trade_volume_factor = v / 500
-
-                price_difference = nap - oap
-                price_difference_factor = 0
-                if price_difference > 0.5:
-                    price_difference_factor = price_difference
-
-                stock_factor = 1.
-                if other_product in self.position and self.position[other_product] > 1000:
-                    stock_factor = self.position[other_product] / 1000
-                elif other_product in self.position and self.position[other_product] < -1000:
-                    stock_factor = 1000 / abs(self.position[other_product])
-
-                amount = np.ceil(risk_factor * nbv * percentage_bought_factor * trade_volume_factor * price_difference_factor * stock_factor).astype(int)
-
-                if amount > 0:
-                    self.stash_sell(other_product, nbp, amount)
+                self.reset_ctr += 1
 
 def product_monitor():
     plt.show()
@@ -422,4 +397,4 @@ class OptiverInterface:
 
 if __name__ == "__main__":
     # Test plotting
-    trader = Trader(name = 'hendrik-ido-ambacht-3')
+    trader = Trader(name = 'baas-2')
