@@ -13,6 +13,33 @@ UDP_BROADCAST_PORT = 7001
 UDP_EXCHANGE_PORT = 8001
 HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
 
+class Trader:
+    def __init__(self):
+        self.position = {}
+        self.cash = 0
+        self.oi = OptiverInterface()
+        self.oi.append_callback(self.perform_trade)
+        self.oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
+        self.oi.show_plot_monitors()
+        self.oi.listen()
+
+    def perform_trade(self, entry):
+        if entry['TYPE'] == 'TRADE':
+            product = entry['FEEDCODE']
+            s = entry['SIDE']
+            p = float(entry['PRICE'])
+            v = int(entry['VOLUME'])
+            t = entry['TIMESTAMP']
+            print("Product:", product)
+            print("Side:", s)
+            print("Price:", p)
+            print("Volume:", v)
+            bp,bv,ap,av = self.oi.get_time_price(product, (t - datetime.timedelta(milliseconds=1)))
+            print("Bid volume:", bv)
+            print("Ask volume:", av)
+            f = v/av if s == 'ASK' else v/bv
+            print("Fraction:", f)
+
 def product_monitor():
     plt.show()
 
@@ -27,10 +54,14 @@ class OptiverInterface:
         self.products = {}
         self.s_exchange = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.s_exchange.bind(("", 8002))
+        self.callbacks = []
 
     def synchronize(self):
         while not self.data_queue.empty():
             self._update_products(self.data_queue.get_nowait())
+
+    def append_callback(self, c):
+        self.callbacks.append(c)
 
     def _update_products(self, entry):
         assert set(['TYPE','FEEDCODE','TIMESTAMP']) <= set(entry.keys())
@@ -63,10 +94,13 @@ class OptiverInterface:
             for p in properties:
                 k,v = p.split("=")
                 entry[k] = v
-            entry['TIMESTAMP'] = datetime.datetime.now()
+            now = datetime.datetime.now()
+            print('[{}] {}'.format(now, entry))
+            entry['TIMESTAMP'] = now
             self._update_products(entry)
             self.data_queue.put(entry)
-            print('[{}] {}'.format(entry['TIMESTAMP'], entry))
+            for c in self.callbacks:
+                c(entry)
 
     def get_timeframe(self, product, now = None, timeframe = 60):
         if now is None: now = datetime.datetime.now()
@@ -220,41 +254,38 @@ class OptiverInterface:
         pmp.terminate()
         del self.product_monitor_processes[idx]
 
-    # def buy(self, user, feedcode, price, volume):
-    #     text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
-    #     self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-    #     end = False
-    #     while not end:
-    #         data = self.s_exchange.recvfrom(1024)[0]
-    #         msg = data.decode("ascii")
-    #         properties = msg.split("|")
-    #         entry = {}
-    #         for p in properties:
-    #             k, v = p.split("=")
-    #             entry[k] = v
-    #         if entry[0] == "ORDER_ACK":
-    #             print(entry)
-    #             end = True
-    #
-    # def sell(self, user, feedcode, price, volume):
-    #     text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
-    #     self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
-    #     end = False
-    #     while not end:
-    #         data = self.s_exchange.recvfrom(1024)[0]
-    #         msg = data.decode("ascii")
-    #         properties = msg.split("|")
-    #         entry = {}
-    #         for p in properties:
-    #             k, v = p.split("=")
-    #             entry[k] = v
-    #         if entry["TYPE"] == "ORDER_ACK":
-    #             print(entry)
-    #             end = True
+    def buy(self, user, feedcode, price, volume):
+        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=BUY|PRICE={}|VOLUME={}".format(user, feedcode, price, volume)
+        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+        end = False
+        while not end:
+            data = self.s_exchange.recvfrom(1024)[0]
+            msg = data.decode("ascii")
+            properties = msg.split("|")
+            entry = {}
+            for p in properties:
+                k, v = p.split("=")
+                entry[k] = v
+            if entry[0] == "ORDER_ACK":
+                print(entry)
+                end = True
+
+    def sell(self, user, feedcode, price, volume):
+        text = "TYPE=ORDER|USERNAME={}|FEEDCODE={}|ACTION=SELL|PRICE={}|VOLUME={}".format(user, feedcode, price, volume).encode("ASCII")
+        self.s_exchange.sendto(text, (UDP_IP, UDP_EXCHANGE_PORT))
+        end = False
+        while not end:
+            data = self.s_exchange.recvfrom(1024)[0]
+            msg = data.decode("ascii")
+            properties = msg.split("|")
+            entry = {}
+            for p in properties:
+                k, v = p.split("=")
+                entry[k] = v
+            if entry["TYPE"] == "ORDER_ACK":
+                print(entry)
+                end = True
 
 if __name__ == "__main__":
     # Test plotting
-    oi = OptiverInterface()
-    oi.setup_plot_monitor(['SP-FUTURE','ESX-FUTURE'], timeframe = 10)
-    oi.show_plot_monitors()
-    oi.listen()
+    trader = Trader()
