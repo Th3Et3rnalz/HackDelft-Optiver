@@ -1,0 +1,125 @@
+@font-face {
+    font-family: 'main-clean';
+    src: url('Minaxi.otf');
+}
+
+@font-face {
+    font-family: 'thick';
+    src: url('BNB.otf');
+}
+
+
+html{
+  background-color: white;
+}
+
+.container{
+    top: 50vh;
+    margin-top: -245px;
+    width: 53%;
+    position:absolute;
+    right: 2%;
+}
+
+.container-bottom{
+    width: 45%;
+    position: absolute;
+    top: 52%;
+    right: 2%;
+}
+
+#title{
+    position: absolute;
+    top: 50px;
+    left: 50vw;
+    margin-left: -250px;
+    font-family: main-clean;
+    letter-spacing: 8px;
+}
+
+h1{
+  font-family: main-clean;
+}
+
+#title > img{
+  height: 100px;
+  position: relative;
+  top: -10px;
+}
+
+
+#move_left{
+  left: 362px;
+}
+
+
+.vertical{
+  display: inline;
+  position: absolute;
+  top: 220px;
+  left: 40px;
+}
+
+.vertical-second{
+  display: inline;
+  position: absolute;
+  top: 450px;
+  left: 40px;
+}
+
+.vertical-second > .squarecontainer.last {
+  position: relative;
+  top:  28px;
+}
+
+.squarecontainer{
+  width: 180px;
+  height: 180px;
+  display: inline-block;
+  margin: 20px;
+  background-color: #B7B7B7;
+  color: black;
+  box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+
+.squarecontainer > h2 {
+  width: 100%;
+}
+
+h2{
+  text-align: center;
+  font-family: main-clean;
+}
+
+
+
+.squarecontainer > p {
+  text-align: center;
+  font-size: 25px;
+  position: relative;
+  top: 10px;
+}
+
+h3{
+  font-family: main-clean;
+  font-size: 28px;
+  padding: 20px;
+  text-align: center;
+}
+h3 > div{
+  text-align: left;
+}
+
+.blink_me {
+  animation: blinker 1s linear infinite;
+}
+
+#volume{
+    top: -10px
+}
+
+@keyframes blinker {
+  50% {
+    opacity: 0;
+  }
+}
