@@ -5,6 +5,15 @@ import inspect
 import time
 import multiprocessing
 
+"""
+You might have to install libraries with:
+
+python3 -m pip install aiohttp
+and 
+python3 -m pip install python-socketio
+
+"""
+
 
 g = {}
 connect_list = []
