@@ -13,8 +13,8 @@ UDP_BROADCAST_PORT = 7001
 UDP_EXCHANGE_PORT = 8001
 HELLO_MESSAGE = "TYPE=SUBSCRIPTION_REQUEST".encode("ascii")
 
-percentage_bought_threshold = 0.7
-risk_factor = 0.2
+percentage_bought_threshold = 0.6
+risk_factor = 0.05
 
 class Trader:
     def __init__(self, name):
@@ -109,7 +109,13 @@ class Trader:
                 if price_difference < - 0.5:
                     price_difference_factor = -price_difference
 
-                amount = np.ceil(risk_factor * nav * percentage_bought_factor * trade_volume_factor * price_difference_factor / 4).astype(int)
+                stock_factor = 1.
+                if other_product in self.position and self.position[other_product] < -1000:
+                    stock_factor = abs(self.position[other_product]) / 1000
+                elif other_product in self.position and self.position[other_product] > 1000:
+                    stock_factor = 1000 / self.position[other_product]
+
+                amount = np.ceil(risk_factor * nav * percentage_bought_factor * trade_volume_factor * price_difference_factor * stock_factor).astype(int)
                 if amount > 0:
                     self.stash_buy(other_product, nap, amount)
 
@@ -128,7 +134,13 @@ class Trader:
                 if price_difference > 0.5:
                     price_difference_factor = price_difference
 
-                amount = np.ceil(risk_factor * nbv * percentage_bought_factor * trade_volume_factor * price_difference_factor / 4).astype(int)
+                stock_factor = 1.
+                if other_product in self.position and self.position[other_product] > 1000:
+                    stock_factor = self.position[other_product] / 1000
+                elif other_product in self.position and self.position[other_product] < -1000:
+                    stock_factor = 1000 / abs(self.position[other_product])
+
+                amount = np.ceil(risk_factor * nbv * percentage_bought_factor * trade_volume_factor * price_difference_factor * stock_factor).astype(int)
 
                 if amount > 0:
                     self.stash_sell(other_product, nbp, amount)
